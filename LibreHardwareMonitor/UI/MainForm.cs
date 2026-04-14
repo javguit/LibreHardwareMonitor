@@ -17,10 +17,8 @@ using Aga.Controls.Tree;
 using Aga.Controls.Tree.NodeControls;
 using LibreHardwareMonitor.Hardware;
 using LibreHardwareMonitor.Hardware.Storage;
-using LibreHardwareMonitor.PawnIo;
 using LibreHardwareMonitor.UI.Themes;
 using LibreHardwareMonitor.Utilities;
-using LibreHardwareMonitor.Wmi;
 
 namespace LibreHardwareMonitor.UI;
 
@@ -35,6 +33,7 @@ public sealed partial class MainForm : Form
     private readonly UserRadioGroup _updateInterval;
     private readonly UserOption _throttleAtaUpdate;
     private readonly UserOption _logSensors;
+    private readonly UserOption _forceDriveWakeup;
     private readonly UserOption _minimizeOnClose;
     private readonly UserOption _minimizeToTray;
     private readonly PlotPanel _plotPanel;
@@ -42,6 +41,7 @@ public sealed partial class MainForm : Form
     private readonly UserOption _readCpuSensors;
     private readonly UserOption _readFanControllersSensors;
     private readonly UserOption _readGpuSensors;
+    private readonly UserOption _readPowerMonitorSensors;
     private readonly UserOption _readHddSensors;
     private readonly UserOption _readMainboardSensors;
     private readonly UserOption _readNicSensors;
@@ -56,7 +56,6 @@ public sealed partial class MainForm : Form
     private readonly SystemTray _systemTray;
     private readonly UnitManager _unitManager;
     private readonly UpdateVisitor _updateVisitor = new();
-    private readonly WmiProvider _wmiProvider;
 
     private int _delayCount;
     private Form _plotForm;
@@ -153,7 +152,6 @@ public sealed partial class MainForm : Form
             treeView.RowHeight = Math.Max(treeView.Font.Height + 1, 18);
             _gadget = new SensorGadget(_computer, _settings, _unitManager);
             _gadget.HideShowCommand += HideShowClick;
-            _wmiProvider = new WmiProvider(_computer);
         }
 
         treeView.ShowNodeToolTips = true;
@@ -269,6 +267,9 @@ public sealed partial class MainForm : Form
         _readGpuSensors = new UserOption("gpuMenuItem", true, gpuMenuItem, _settings);
         _readGpuSensors.Changed += delegate { _computer.IsGpuEnabled = _readGpuSensors.Value; };
 
+        _readPowerMonitorSensors = new UserOption("powerMonitorMenuItem", true, powerMonitorMenuItem, _settings);
+        _readPowerMonitorSensors.Changed += delegate { _computer.IsPowerMonitorEnabled = _readPowerMonitorSensors.Value; };
+
         _readFanControllersSensors = new UserOption("fanControllerMenuItem", true, fanControllerMenuItem, _settings);
         _readFanControllersSensors.Changed += delegate { _computer.IsControllerEnabled = _readFanControllersSensors.Value; };
 
@@ -286,9 +287,20 @@ public sealed partial class MainForm : Form
 
         _showGadget = new UserOption("gadgetMenuItem", false, gadgetMenuItem, _settings);
 
+        _forceDriveWakeup = new UserOption("forceDriveWakeupItem", false, forceDriveWakeupItem, _settings);
+        _forceDriveWakeup.Changed += delegate
+        {
+            _computer.Hardware
+                .OfType<StorageDevice>()
+                .ToList()
+                .ForEach(sd =>
+            {
+                sd.ForceWakeup = _forceDriveWakeup.Value;
+            });
+        };
+
         // Prevent Menu From Closing When UnClicking Hardware Items
         menuItemFileHardware.DropDown.Closing += StopFileHardwareMenuFromClosing;
-
 
         _showGadget.Changed += delegate
         {
@@ -933,7 +945,6 @@ public sealed partial class MainForm : Form
         treeView.Invalidate();
         _systemTray.Redraw();
         _gadget?.Redraw();
-        _wmiProvider?.Update();
 
         if (!backgroundUpdater.IsBusy)
             backgroundUpdater.RunWorkerAsync();
@@ -1294,11 +1305,27 @@ public sealed partial class MainForm : Form
     private void ExpandAllNodes_Click(object sender, EventArgs e)
     {
         treeView.ExpandAll();
+
+        foreach (var node in treeView.AllNodes)
+        {
+            if (node.Tag is IExpandPersistNode expandPersistNode)
+            {
+                expandPersistNode.Expanded = true;
+            }
+        }
     }
 
-    private void CollapsepAllNodes_Click(object sender, EventArgs e)
+    private void CollapseAllNodes_Click(object sender, EventArgs e)
     {
         treeView.CollapseAll();
+
+        foreach (var node in treeView.AllNodes)
+        {
+            if (node.Tag is IExpandPersistNode expandPersistNode)
+            {
+                expandPersistNode.Expanded = false;
+            }
+        }
     }
 
     private void resetPlotMenuItem_Click(object sender, EventArgs e)
